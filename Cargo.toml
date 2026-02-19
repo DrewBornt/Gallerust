@@ -8,3 +8,7 @@ winit = "0.29"
 pixels = "0.15"
 image = "0.25"
 rfd = "0.14"
+
+[[bin]]
+name = "gallerust"
+path = "src/main.rs"
