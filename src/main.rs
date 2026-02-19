@@ -279,25 +279,33 @@ impl eframe::App for Gallerust {
 
         // ── Central panel (image display area) ──────────────────────────────
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::BLACK))
-            .show(ctx, |ui| {
-                if let Some(texture) = &self.texture {
-                    let available = ui.available_size();
+    .frame(egui::Frame::none().fill(egui::Color32::BLACK))
+    .show(ctx, |ui| {
+        if let Some(texture) = &self.texture {
+            let available = ui.available_size();
 
-                    // Scale image to fit the available space while preserving
-                    // aspect ratio, then apply zoom on top.
-                    let img_size = texture.size_vec2();
-                    let scale_x = available.x / img_size.x;
-                    let scale_y = available.y / img_size.y;
-                    let base_scale = scale_x.min(scale_y);
-                    let final_scale = base_scale * self.zoom;
+            let img_size = texture.size_vec2();
+            let scale_x = available.x / img_size.x;
+            let scale_y = available.y / img_size.y;
+            let base_scale = scale_x.min(scale_y);
+            let final_scale = base_scale * self.zoom;
 
-                    let display_size = egui::vec2(
-                        img_size.x * final_scale,
-                        img_size.y * final_scale,
-                    );
+            let display_size = egui::vec2(
+                img_size.x * final_scale,
+                img_size.y * final_scale,
+            );
 
-                    // Center the image by splitting leftover space into equal padding
+            // ScrollArea prevents the image from overflowing outside the
+            // central panel when zoomed in. Without this, a large display_size
+            // would push content past the panel boundary and hide the toolbar.
+            // auto_shrink(false) ensures the scroll area always fills the
+            // full available space even when the image is smaller than the panel.
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    // When the image is smaller than the panel (zoom <= 1.0),
+                    // we still want it centered. We do this by adding padding
+                    // inside the scroll area.
                     let padding_x = ((available.x - display_size.x) / 2.0).max(0.0);
                     let padding_y = ((available.y - display_size.y) / 2.0).max(0.0);
 
@@ -309,20 +317,21 @@ impl eframe::App for Gallerust {
                                 .fit_to_exact_size(display_size)
                         );
                     });
+                });
 
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("Click '📂 Open' to select an image");
-                    });
-                }
-
-                // Keyboard navigation
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-                    self.go_next(ctx);
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
-                    self.go_prev(ctx);
-                }
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("Click '📂 Open' to select an image");
             });
+        }
+
+        // Keyboard navigation
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+            self.go_next(ctx);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+            self.go_prev(ctx);
+        }
+    });
     }
 }
