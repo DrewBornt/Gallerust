@@ -1,7 +1,5 @@
 name: Release
 
-# Only runs when you push a version tag like "v1.0.0"
-# Regular pushes to main won't trigger this
 on:
   push:
     tags:
@@ -16,7 +14,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Cache compiled dependencies so builds are faster after the first run
       - name: Cache dependencies
         uses: actions/cache@v4
         with:
@@ -26,7 +23,6 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      # Upload the .exe as a release asset
       - name: Upload Windows binary
         uses: actions/upload-artifact@v4
         with:
@@ -34,15 +30,14 @@ jobs:
           path: target/release/gallerust.exe
 
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04  # Older base = broader glibc compatibility
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # egui on Linux requires these system libraries to compile
-      - name: Install Linux dependencies
+      - name: Install Linux system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -59,8 +54,21 @@ jobs:
           path: ~/.cargo
           key: linux-cargo-${{ hashFiles('Cargo.lock') }}
 
+      - name: Install cargo-deb and cargo-rpm
+        run: |
+          cargo install cargo-deb
+          cargo install cargo-rpm
+
       - name: Build release binary
         run: cargo build --release
+
+      - name: Build .deb package
+        run: cargo deb
+
+      - name: Build .rpm package
+        run: |
+          cargo rpm init  # Sets up the RPM spec file if not already present
+          cargo rpm build
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
@@ -68,12 +76,23 @@ jobs:
           name: gallerust-linux
           path: target/release/gallerust
 
-  # This job runs after both builds succeed and creates the actual GitHub Release
+      - name: Upload .deb package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallerust-deb
+          path: target/debian/*.deb
+
+      - name: Upload .rpm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallerust-rpm
+          path: target/release/rpmbuild/RPMS/**/*.rpm
+
   create-release:
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required to create releases
+      contents: write
 
     steps:
       - name: Download Windows binary
@@ -86,12 +105,22 @@ jobs:
         with:
           name: gallerust-linux
 
-      # Create the GitHub Release and attach both binaries
+      - name: Download .deb package
+        uses: actions/download-artifact@v4
+        with:
+          name: gallerust-deb
+
+      - name: Download .rpm package
+        uses: actions/download-artifact@v4
+        with:
+          name: gallerust-rpm
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             gallerust.exe
             gallerust
-          # The release name and body are auto-generated from the tag
+            *.deb
+            *.rpm
           generate_release_notes: true
