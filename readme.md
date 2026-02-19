@@ -1,0 +1,1 @@
+![Screenshot of the image viewer](screenshots/image.png)

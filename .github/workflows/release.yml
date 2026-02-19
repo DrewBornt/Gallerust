@@ -1,0 +1,97 @@
+name: Release
+
+# Only runs when you push a version tag like "v1.0.0"
+# Regular pushes to main won't trigger this
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache compiled dependencies so builds are faster after the first run
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: windows-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release
+
+      # Upload the .exe as a release asset
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallerust-windows
+          path: target/release/gallerust.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # egui on Linux requires these system libraries to compile
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libgtk-3-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: linux-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallerust-linux
+          path: target/release/gallerust
+
+  # This job runs after both builds succeed and creates the actual GitHub Release
+  create-release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to create releases
+
+    steps:
+      - name: Download Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gallerust-windows
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gallerust-linux
+
+      # Create the GitHub Release and attach both binaries
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            gallerust.exe
+            gallerust
+          # The release name and body are auto-generated from the tag
+          generate_release_notes: true
