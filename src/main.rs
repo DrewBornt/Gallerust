@@ -39,11 +39,13 @@ impl AppState {
     // or the folder might contain no images. Returning None lets main() handle
     // these cases cleanly without panicking.
     fn new() -> Option<Self> {
-        // Open a native OS folder picker dialog.
-        // `pick_folder()` blocks until the user makes a selection or cancels.
-        // If the user cancels, it returns None, and the `?` operator
-        // propagates that None up to the caller immediately.
-        let folder = FileDialog::new().pick_folder()?;
+        
+        let file = FileDialog::new()
+            .add_filter("Images", &["jpg", "jpeg", "png", "gif", "webp", "bmp"])
+            .pick_file()?;
+
+        // Then derive the folder from the file's parent directory
+        let folder = file.parent()?.to_path_buf();
 
         // Read the contents of the selected folder.
         // `read_dir` returns an iterator of directory entries.
@@ -72,14 +74,20 @@ impl AppState {
             return None;
         }
 
+        // Find the index of the file the user picked so we start on that image
+        let current_index = images.iter()
+            .position(|p| p == &file)
+            .unwrap_or(0);  // Fall back to first image if somehow not found
+
+
         // Load the first image immediately so we have something to display
         // as soon as the window opens.
-        let (img_data, img_width, img_height) = load_image(&images[0]);
+        let (img_data, img_width, img_height) = load_image(&images[current_index]);
 
         // Return the fully initialized AppState wrapped in Some.
         Some(Self {
             images,
-            current_index: 0,
+            current_index,
             zoom: 1.0,
             img_data,
             img_width,
