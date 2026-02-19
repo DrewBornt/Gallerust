@@ -10,10 +10,8 @@ use eframe::egui;
 // we build from our raw pixel data before uploading.
 use egui::ColorImage;
 
-// RetainedImage was removed in newer egui versions in favor of TextureHandle,
-// which is what we'll use. A TextureHandle is a reference-counted handle to a
-// GPU texture. We wrap it in Option because we don't have an image loaded
-// at startup.
+// TextureHandle is a reference-counted handle to a GPU texture.
+// We wrap it in Option because we don't have an image loaded at startup.
 use egui::TextureHandle;
 
 use std::path::PathBuf;
@@ -21,12 +19,11 @@ use rfd::FileDialog;
 
 fn main() -> eframe::Result<()> {
     // NativeOptions configures the native window that eframe creates.
-    // We want it maximized by default, matching our previous behavior.
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Gallerust")
             .with_maximized(true),
-        ..Default::default()  // Use defaults for everything else
+        ..Default::default()
     };
 
     // eframe::run_native is the entry point. It takes:
@@ -38,42 +35,34 @@ fn main() -> eframe::Result<()> {
         "Gallerust",
         options,
         Box::new(|cc| {
-            // The CreationContext `cc` gives us access to the egui context
-            // at startup. We need to call this to enable image support —
-            // without it, egui won't know how to load image bytes into textures.
+            // Enable image support in egui. Without this, egui won't know
+            // how to load image bytes into textures.
             egui_extras::install_image_loaders(&cc.egui_ctx);
-
-            // Construct and return our app. Box::new wraps it in a heap
-            // allocation as required by eframe's trait object interface.
             Box::new(Gallerust::new())
         }),
     )
 }
 
-// Our main application struct. This holds all the state that needs to persist
-// between frames — equivalent to the AppState struct we had before, but now
-// it also drives the UI directly through the eframe::App trait.
+// Our main application struct. Holds all state that persists between frames.
 struct Gallerust {
-    // The list of image paths found in the selected folder, sorted alphabetically.
+    // Sorted list of image file paths found in the selected folder.
     images: Vec<PathBuf>,
 
     // Index into `images` for the currently displayed image.
     current_index: usize,
 
     // The current zoom level. 1.0 means "fit to available space".
-    // We store this as an f32 so the slider can mutate it directly.
+    // We use a multiplicative zoom model now (see zoom section below)
+    // so 2.0 means twice the fit size, 0.5 means half, etc.
     zoom: f32,
 
     // The GPU texture for the currently displayed image.
-    // None means no image is loaded yet (before the user picks a folder).
-    // We replace this every time the user navigates to a new image.
+    // None means no image is loaded yet (before the user picks a file).
     texture: Option<TextureHandle>,
 }
 
 impl Gallerust {
     fn new() -> Self {
-        // Start with an empty state. The user hasn't picked a folder yet,
-        // so images is empty and texture is None. The UI will show a prompt.
         Self {
             images: Vec::new(),
             current_index: 0,
@@ -83,7 +72,6 @@ impl Gallerust {
     }
 
     // Open a file picker dialog and load the selected image and its folder.
-    // This is called when the user clicks "Open Image" or on first launch.
     fn open_file(&mut self, ctx: &egui::Context) {
         // Show a native OS file picker filtered to supported image types.
         // pick_file() blocks until the user makes a selection or cancels.
@@ -91,27 +79,28 @@ impl Gallerust {
             .add_filter("Images", &["jpg", "jpeg", "png", "gif", "webp", "bmp"])
             .pick_file()
         else {
-            return;  // User cancelled, do nothing
+            return; // User cancelled, do nothing
         };
 
-        // Derive the folder from the selected file's parent directory.
-        // We want to browse all images in the same folder, not just the one picked.
+        // Derive the folder from the selected file's parent directory so
+        // we can browse all images in the same folder.
         let Some(folder) = file.parent() else {
             return;
         };
 
-        // Use match instead of unwrap() so a folder read failure doesn't crash the app.
-        // This can happen if the drive is ejected, permissions change, or the path
-        // is on an unavailable network share.
+        // Use match instead of unwrap() so a folder read failure doesn't
+        // crash the app. This can happen if a drive is ejected, permissions
+        // change, or the path is on an unavailable network share.
         let read_result = match std::fs::read_dir(folder) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Failed to read folder: {e}");
-                return;  // Bail out gracefully instead of panicking
+                return;
             }
         };
 
-        // Scan the folder for all supported image files, same logic as before.
+        // Scan folder for supported image files, filtering by extension.
+        // to_lowercase() ensures .JPG and .jpg both match.
         let mut images: Vec<PathBuf> = read_result
             .filter_map(|entry| {
                 let path = entry.ok()?.path();
@@ -125,11 +114,12 @@ impl Gallerust {
         images.sort();
 
         if images.is_empty() {
+            eprintln!("No supported images found in folder.");
             return;
         }
 
-        // Start on the file the user actually picked rather than the first
-        // file alphabetically.
+        // Start on the file the user actually picked rather than always
+        // defaulting to the first file alphabetically.
         let current_index = images.iter()
             .position(|p| p == &file)
             .unwrap_or(0);
@@ -137,20 +127,14 @@ impl Gallerust {
         self.images = images;
         self.current_index = current_index;
         self.zoom = 1.0;
-
-        // Load the selected image into a GPU texture immediately.
         self.load_texture(ctx);
     }
 
     // Load the image at current_index from disk and upload it to the GPU
-    // as an egui texture. This replaces our old load_image() + draw_image()
-    // pipeline — egui handles the scaling and rendering for us once we
-    // have a texture.
+    // as an egui texture. egui handles scaling and rendering from here.
     fn load_texture(&mut self, ctx: &egui::Context) {
         let path = &self.images[self.current_index];
 
-        // Use the `image` crate to decode the file into raw RGBA pixels,
-        // same as before.
         let img = match image::open(path) {
             Ok(i) => i.to_rgba8(),
             Err(e) => {
@@ -161,11 +145,10 @@ impl Gallerust {
 
         let (width, height) = img.dimensions();
 
-        // ColorImage is egui's CPU-side image type. It expects a flat Vec
-        // of Color32 values (one per pixel). We convert from the raw RGBA
-        // bytes by chunking into groups of 4 bytes and building Color32s.
+        // ColorImage is egui's CPU-side image type. We convert the raw RGBA
+        // bytes into Color32 values by chunking into groups of 4 bytes.
         let pixels: Vec<egui::Color32> = img
-            .chunks_exact(4)  // Split flat byte array into [R, G, B, A] groups
+            .chunks_exact(4)
             .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
             .collect();
 
@@ -174,10 +157,8 @@ impl Gallerust {
             pixels,
         };
 
-        // Upload the image to the GPU as a texture.
-        // TextureOptions::LINEAR gives smooth scaling when the image is
-        // scaled up or down, unlike the nearest-neighbor we had before.
-        // The string "current_image" is just a debug label for the texture.
+        // Upload to GPU. TextureOptions::LINEAR gives smooth scaling
+        // (bilinear filtering) instead of blocky nearest-neighbor.
         self.texture = Some(ctx.load_texture(
             "current_image",
             color_image,
@@ -185,7 +166,7 @@ impl Gallerust {
         ));
     }
 
-    // Navigate to the next image, wrapping around from last to first.
+    // Navigate to the next image, wrapping from last back to first.
     fn go_next(&mut self, ctx: &egui::Context) {
         if self.images.is_empty() { return; }
         self.current_index = (self.current_index + 1) % self.images.len();
@@ -193,9 +174,10 @@ impl Gallerust {
         self.load_texture(ctx);
     }
 
-    // Navigate to the previous image, wrapping around from first to last.
+    // Navigate to the previous image, wrapping from first back to last.
     fn go_prev(&mut self, ctx: &egui::Context) {
         if self.images.is_empty() { return; }
+        // checked_sub prevents usize underflow at index 0
         self.current_index = self.current_index
             .checked_sub(1)
             .unwrap_or(self.images.len() - 1);
@@ -203,7 +185,16 @@ impl Gallerust {
         self.load_texture(ctx);
     }
 
-    // Build the title string showing filename and position, e.g. "cat.jpg (3/12)".
+    // Apply a multiplicative zoom delta, clamped to a safe range.
+    // This is used by both scroll wheel and pinch-to-zoom gestures.
+    // Multiplicative zoom feels more natural than additive because each
+    // step is proportional to the current zoom level — going from 1.0 to
+    // 2.0 feels the same as going from 2.0 to 4.0.
+    fn apply_zoom_delta(&mut self, delta: f32) {
+        self.zoom = (self.zoom * delta).clamp(0.1, 5.0);
+    }
+
+    // Build the title string e.g. "cat.jpg (3/12)".
     fn title(&self) -> String {
         if self.images.is_empty() {
             return "Gallerust".to_string();
@@ -216,31 +207,47 @@ impl Gallerust {
     }
 }
 
-// The eframe::App trait is what makes our struct an eframe application.
-// We only need to implement one method: `update`, which is called every frame.
-// This is where all UI layout and image rendering happens.
 impl eframe::App for Gallerust {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
+        // ── Zoom input ───────────────────────────────────────────────────────
+        // We handle zoom at the top of update(), before the panels are drawn,
+        // so input is never missed regardless of what widget has focus.
+
+        // zoom_delta() is egui's cross-platform normalized zoom input.
+        // It returns a multiplier: 1.1 = 10% larger, 0.9 = 10% smaller, 1.0 = no change.
+        // It handles both scroll wheels AND trackpad pinch-to-zoom gestures automatically,
+        // and egui normalizes the raw platform delta values for us so we don't have to
+        // worry about different mice or OSes reporting wildly different scroll magnitudes.
+        let zoom_delta = ctx.input(|i| i.zoom_delta());
+        if zoom_delta != 1.0 {
+            self.apply_zoom_delta(zoom_delta);
+        }
+
+        // Keyboard zoom uses the same multiplicative model for consistency.
+        // 1.1 and 0.9 match what a single scroll notch typically produces,
+        // so keyboard and scroll wheel feel equivalent.
+        if ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) {
+            self.apply_zoom_delta(1.1);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Minus)) {
+            self.apply_zoom_delta(0.9);
+        }
+
         // ── Bottom toolbar panel ─────────────────────────────────────────────
-        // Panels in egui are declared first and claim space from the edges
-        // inward. We declare the bottom panel before the central panel so
-        // the central panel fills whatever space remains above it.
+        // Panels claim space from the edges inward. Bottom panel is declared
+        // first so the central panel fills the remaining space above it.
         egui::TopBottomPanel::bottom("toolbar")
             .exact_height(48.0)
             .show(ctx, |ui| {
-                // horizontal_centered lays out widgets in a row, centered vertically
                 ui.horizontal_centered(|ui| {
 
-                    // Open button — lets the user pick a new image at any time
                     if ui.button("📂 Open").clicked() {
                         self.open_file(ctx);
                     }
 
                     ui.separator();
 
-                    // Previous/next buttons. We pass ctx so load_texture can
-                    // upload the new image to the GPU.
                     if ui.button("◀ Prev").clicked() {
                         self.go_prev(ctx);
                     }
@@ -250,22 +257,20 @@ impl eframe::App for Gallerust {
 
                     ui.separator();
 
-                    // Filename and position indicator in the middle
                     ui.label(self.title());
 
                     ui.separator();
 
-                    // Zoom slider on the right side.
-                    // egui::Slider mutates state.zoom directly through a
-                    // mutable reference — no callback needed.
+                    // Zoom slider. Because we now use a multiplicative zoom model,
+                    // the slider still works fine — it just directly sets self.zoom
+                    // to whatever value the user drags to.
                     ui.label("Zoom:");
                     ui.add(
                         egui::Slider::new(&mut self.zoom, 0.1..=5.0)
-                            .step_by(0.1)       // Snap to 0.1 increments
-                            .fixed_decimals(1)  // Show one decimal place
+                            .step_by(0.1)
+                            .fixed_decimals(1)
                     );
 
-                    // Reset zoom button
                     if ui.button("↺").on_hover_text("Reset zoom").clicked() {
                         self.zoom = 1.0;
                     }
@@ -273,22 +278,18 @@ impl eframe::App for Gallerust {
             });
 
         // ── Central panel (image display area) ──────────────────────────────
-        // CentralPanel fills all remaining space after panels have claimed
-        // their portions. This is where the image is drawn.
         egui::CentralPanel::default()
-            // Set the background to black, matching our old black letterbox bars
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
             .show(ctx, |ui| {
                 if let Some(texture) = &self.texture {
-                    // Get the available space in the central panel
                     let available = ui.available_size();
 
-                    // Calculate the scaled image size, preserving aspect ratio.
-                    // This replicates the fit-to-window logic from our old draw_image().
-                    let img_size = texture.size_vec2();  // Native image dimensions as Vec2
+                    // Scale image to fit the available space while preserving
+                    // aspect ratio, then apply zoom on top.
+                    let img_size = texture.size_vec2();
                     let scale_x = available.x / img_size.x;
                     let scale_y = available.y / img_size.y;
-                    let base_scale = scale_x.min(scale_y);  // Fit scale
+                    let base_scale = scale_x.min(scale_y);
                     let final_scale = base_scale * self.zoom;
 
                     let display_size = egui::vec2(
@@ -296,19 +297,13 @@ impl eframe::App for Gallerust {
                         img_size.y * final_scale,
                     );
 
-                    // Center the image in the available space by adding padding.
-                    // We calculate how much empty space is left after the image
-                    // and split it evenly on both sides.
+                    // Center the image by splitting leftover space into equal padding
                     let padding_x = ((available.x - display_size.x) / 2.0).max(0.0);
                     let padding_y = ((available.y - display_size.y) / 2.0).max(0.0);
 
-                    ui.add_space(padding_y);  // Push image down from the top
-
+                    ui.add_space(padding_y);
                     ui.horizontal(|ui| {
-                        ui.add_space(padding_x);  // Push image in from the left
-
-                        // Finally, draw the image as an egui Image widget.
-                        // egui handles uploading to GPU, scaling, and rendering.
+                        ui.add_space(padding_x);
                         ui.add(
                             egui::Image::new(texture)
                                 .fit_to_exact_size(display_size)
@@ -316,32 +311,17 @@ impl eframe::App for Gallerust {
                     });
 
                 } else {
-                    // No image loaded yet — show a centered prompt
                     ui.centered_and_justified(|ui| {
                         ui.label("Click '📂 Open' to select an image");
                     });
                 }
 
-                // Handle keyboard input for navigation and zoom.
-                // We check for key presses here because egui processes
-                // input through the context rather than separate events.
+                // Keyboard navigation
                 if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
                     self.go_next(ctx);
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
                     self.go_prev(ctx);
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) {
-                    self.zoom = (self.zoom + 0.1).min(5.0);
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::Minus)) {
-                    self.zoom = (self.zoom - 0.1).max(0.1);
-                }
-
-                // Scroll wheel zoom — egui exposes scroll delta through ctx.input
-                let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                if scroll != 0.0 {
-                    self.zoom = (self.zoom + scroll * 0.001).clamp(0.1, 5.0);
                 }
             });
     }
