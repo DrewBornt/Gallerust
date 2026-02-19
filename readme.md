@@ -24,7 +24,7 @@ Grab the latest binary for your platform from the [Releases](../../releases) pag
 ### Build from Source
 Requires [Rust](https://rustup.rs/) to be installed.
 ```bash
-git clone https://github.com/yourusername/gallerust
+git clone https://github.com/drewbornt/gallerust
 cd gallerust
 cargo build --release
 ```
