@@ -2,7 +2,6 @@
 
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
-    dpi::LogicalSize,
     event::{Event, KeyEvent, WindowEvent, MouseScrollDelta},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
@@ -11,13 +10,6 @@ use winit::{
 use std::sync::Arc;
 use std::path::PathBuf;
 use rfd::FileDialog;
-
-// Default window dimensions in logical pixels.
-// "Logical" means these are DPI-aware units, so on a high-DPI screen
-// the actual pixel count may be higher, but the window will appear
-// the same physical size regardless of screen density.
-const WINDOW_WIDTH: u32 = 1280;
-const WINDOW_HEIGHT: u32 = 720;
 
 // AppState holds everything our application needs to remember between frames.
 // Because the event loop in winit is driven by OS events, we can't use
@@ -199,7 +191,7 @@ fn main() {
     let window = Arc::new(
         WindowBuilder::new()
             .with_title(state.title())
-            .with_inner_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT))
+            .with_maximized(true)
             .build(&event_loop)
             .unwrap()
     );
