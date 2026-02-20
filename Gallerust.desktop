@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Gallerust
+Comment=Image Viewer
+Exec=gallerust %f
+Icon=image-viewer
+Type=Application
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/gif;image/webp;image/bmp;
