@@ -30,7 +30,7 @@ jobs:
           path: target/release/gallerust.exe
 
   build-linux:
-    runs-on: ubuntu-22.04  # Older base = broader glibc compatibility
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
