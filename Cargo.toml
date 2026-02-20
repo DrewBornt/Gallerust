@@ -2,6 +2,7 @@
 name = "gallerust"
 version = "1.0.0"
 edition = "2024"
+description = "A simple image viewer made in Rust."
 license = "MIT"
 homepage = "https://github.com/DrewBornt/Gallerust.git"
 repository = "https://github.com/DrewBornt/Gallerust.git"
@@ -15,17 +16,18 @@ depends = "$auto"
 section = "graphics"
 priority = "optional"
 assets = [
-    ["target/release/gallerust", "usr/bin", "755"]
+    ["target/release/gallerust", "usr/bin", "755"],
+    ["gallerust.desktop", "usr/share/applications/gallerust.desktop", "644"]
 ]
 
 [package.metadata.rpm]
 package = "gallerust"
-
 [package.metadata.rpm.cargo]
 buildflags = ["--release"]
-
 [package.metadata.rpm.targets]
 gallerust = {path = "/usr/bin/gallerust"}
+[package.metadata.rpm.files]
+"/usr/share/applications/gallerust.desktop" = { source = "assets/gallerust.desktop" }
 
 [dependencies]
 eframe = "0.27"
