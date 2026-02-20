@@ -27,7 +27,7 @@ buildflags = ["--release"]
 [package.metadata.rpm.targets]
 gallerust = {path = "/usr/bin/gallerust"}
 [package.metadata.rpm.files]
-"/usr/share/applications/gallerust.desktop" = { source = "assets/gallerust.desktop" }
+"/usr/share/applications/gallerust.desktop" = { source = "gallerust.desktop" }
 
 [dependencies]
 eframe = "0.27"
