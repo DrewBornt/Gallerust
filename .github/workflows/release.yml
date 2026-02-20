@@ -54,39 +54,14 @@ jobs:
           path: ~/.cargo
           key: linux-cargo-${{ hashFiles('Cargo.lock') }}
 
-      - name: Install cargo-deb and cargo-rpm
-        run: |
-          cargo install cargo-deb
-          cargo install cargo-rpm
-
       - name: Build release binary
         run: cargo build --release
-
-      - name: Build .deb package
-        run: cargo deb
-
-      - name: Build .rpm package
-        run: |
-          cargo rpm init  # Sets up the RPM spec file if not already present
-          cargo rpm build
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
         with:
           name: gallerust-linux
           path: target/release/gallerust
-
-      - name: Upload .deb package
-        uses: actions/upload-artifact@v4
-        with:
-          name: gallerust-deb
-          path: target/debian/*.deb
-
-      - name: Upload .rpm package
-        uses: actions/upload-artifact@v4
-        with:
-          name: gallerust-rpm
-          path: target/release/rpmbuild/RPMS/**/*.rpm
 
   create-release:
     needs: [build-windows, build-linux]
@@ -105,22 +80,10 @@ jobs:
         with:
           name: gallerust-linux
 
-      - name: Download .deb package
-        uses: actions/download-artifact@v4
-        with:
-          name: gallerust-deb
-
-      - name: Download .rpm package
-        uses: actions/download-artifact@v4
-        with:
-          name: gallerust-rpm
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             gallerust.exe
             gallerust
-            *.deb
-            *.rpm
           generate_release_notes: true
